@@ -1,0 +1,15 @@
+langchain
+langchain-openai
+langchain-google-genai
+python-dotenv
+langchain-community
+pypdf
+beautifulsoup4
+lxml
+unstructured
+faiss-cpu
+sentence-transformers
+chromadb
+pandas
+openpyxl
+pydantic
