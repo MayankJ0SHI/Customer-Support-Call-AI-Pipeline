@@ -12,6 +12,11 @@ An intelligent AI-powered pipeline for analyzing, classifying, and evaluating cu
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
+  - [CLI Pipeline](#cli-pipeline)
+  - [FastAPI Server](#fastapi-server)
+- [API Endpoints](#api-endpoints)
+- [Docker Deployment](#docker-deployment)
+- [AWS Deployment](#aws-deployment)
 - [Data Format](#data-format)
 - [Output](#output)
 - [Components](#components)
@@ -44,6 +49,9 @@ The system uses LangChain to orchestrate LLM calls and uses Pydantic for robust 
 - **Batch Processing**: Processes multiple transcripts efficiently with progress tracking
 - **Flexible LLM Integration**: Supports multiple LLM providers (OpenAI, Google Gemini)
 - **Excel Report Export**: Generates detailed analysis reports in Excel format
+- **REST API Interface**: FastAPI-based API for programmatic access and integration
+- **CORS Support**: Configured for cross-origin requests
+- **Docker Ready**: Full containerization support for easy deployment
 
 ---
 
@@ -86,17 +94,20 @@ Input Transcripts (Excel)
 ```
 Customer-Support-Call-AI-Pipeline/
 │
-├── main.py                          # Entry point - orchestrates the entire pipeline
+├── main.py                          # CLI entry point - orchestrates the entire pipeline
+├── app.py                           # FastAPI entry point - REST API server
 ├── template.py                      # Template/example file
+├── dockerfile                       # Docker container configuration
+├── .dockerignore                    # Docker build ignore file
 ├── requirements.txt                 # Project dependencies
 ├── README.md                        # This file
 │
 ├── config/
 │   └── config.json                 # Configuration file (LLM settings, evaluation criteria)
 │
-├── data/
+├── data/                           # Data directory (auto-created by API)
 │   ├── transcripts.xlsx            # Input data - customer call transcripts
-│   └── output.xlsx                 # Output - analyzed and evaluated transcripts
+│   └── output_*.xlsx               # Output files - analyzed and evaluated transcripts
 │
 ├── src/
 │   ├── __init__.py
@@ -107,11 +118,13 @@ Customer-Support-Call-AI-Pipeline/
 │   │   ├── router.py               # Intelligent routing logic
 │   │   ├── evaluation.py           # Evaluation chains (tone, knowledge, resolution)
 │   │   ├── reporting.py            # Final report generation
-│   │   └── aggregation.py          # Results aggregation
+│   │   ├── aggregation.py          # Results aggregation
+│   │   └── inference.py            # Run full pipeline inference
 │   │
 │   ├── pipeline/                   # Pipeline orchestration
 │   │   ├── __init__.py
-│   │   └── pipeline.py             # Main pipeline execution logic
+│   │   ├── pipeline.py             # Main pipeline execution logic
+│   │   └── inference.py            # Inference wrapper for API
 │   │
 │   └── utils/                      # Utility functions
 │       ├── __init__.py
@@ -211,13 +224,15 @@ Edit `config/config.json` to customize the pipeline behavior:
 
 ## 🚀 Usage
 
-### Running the Pipeline
+### CLI Pipeline
+
+Run the command-line pipeline for batch processing:
 
 ```bash
 python main.py
 ```
 
-### Expected Output
+#### Expected Output
 
 The pipeline will display progress indicators for each step:
 
@@ -251,7 +266,486 @@ Step 5️⃣: Saving the report
 
 ---
 
-## 📊 Data Format
+### FastAPI Server
+
+Run the REST API server for real-time evaluation:
+
+```bash
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+The API will be available at `http://localhost:8000`
+
+#### Interactive API Documentation
+
+- **Swagger UI**: `http://localhost:8000/docs`
+- **ReDoc**: `http://localhost:8000/redoc`
+
+---
+
+## � API Endpoints
+
+### Health Check
+
+**GET** `/`
+
+Verify that the API server is running.
+
+**Response:**
+```json
+{
+  "message": "QA Evaluator API is running..."
+}
+```
+
+### Evaluate File
+
+**POST** `/evaluate-file`
+
+Upload a CSV or Excel file containing call transcripts and receive evaluated results.
+
+**Request:**
+- **Content-Type**: `multipart/form-data`
+- **Parameter**: `file` (required) - CSV or XLSX file
+  - Supported formats: `.csv`, `.xlsx`
+  - Max file size: Limited by server configuration
+
+**Response:**
+- **Content-Type**: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- **Content**: Excel file with evaluation results
+
+**Example using cURL:**
+```bash
+curl -X POST "http://localhost:8000/evaluate-file" \
+  -F "file=@data/transcripts.xlsx" \
+  --output results.xlsx
+```
+
+**Example using Python:**
+```python
+import requests
+
+with open('data/transcripts.xlsx', 'rb') as f:
+    response = requests.post(
+        'http://localhost:8000/evaluate-file',
+        files={'file': f}
+    )
+    
+with open('results.xlsx', 'wb') as output:
+    output.write(response.content)
+```
+
+**Example using JavaScript:**
+```javascript
+const formData = new FormData();
+const fileInput = document.querySelector('input[type="file"]');
+formData.append('file', fileInput.files[0]);
+
+fetch('http://localhost:8000/evaluate-file', {
+  method: 'POST',
+  body: formData
+})
+.then(response => response.blob())
+.then(blob => {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'results.xlsx';
+  a.click();
+});
+```
+
+**Error Responses:**
+```json
+{
+  "error": "Please upload a csv or xlsx file."
+}
+```
+
+---
+
+## 🐳 Docker Deployment
+
+### Prerequisites
+
+- Docker installed on your system
+- Docker Compose (optional, for orchestration)
+
+### Quick Start with Docker
+
+#### 1. Build the Docker Image
+
+```bash
+docker build -t customer-support-qa-evaluator:latest .
+```
+
+#### 2. Run the Container
+
+```bash
+docker run -p 8000:8000 \
+  -e OPENAI_API_KEY=your_key_here \
+  -e GOOGLE_API_KEY=your_key_here \
+  -v $(pwd)/data:/app/data \
+  customer-support-qa-evaluator:latest
+```
+
+#### 3. Access the API
+
+Once the container is running:
+- **API**: `http://localhost:8000`
+- **Docs**: `http://localhost:8000/docs`
+
+### Docker Configuration Details
+
+#### Dockerfile
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create data directory
+RUN mkdir -p /app/data
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+
+# Expose port
+EXPOSE 8000
+
+# Run the application
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+#### .dockerignore
+
+```
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.git
+.vscode
+logs/
+data/
+myenv/
+```
+
+### Environment Variables
+
+When running Docker, pass environment variables using `-e` flag:
+
+```bash
+docker run -p 8000:8000 \
+  -e OPENAI_API_KEY=sk-... \
+  -e GOOGLE_API_KEY=... \
+  customer-support-qa-evaluator:latest
+```
+
+### Volumes
+
+Mount the data directory to persist input/output files:
+
+```bash
+docker run -p 8000:8000 \
+  -v /path/to/local/data:/app/data \
+  customer-support-qa-evaluator:latest
+```
+
+### Docker Compose (Optional)
+
+Create a `docker-compose.yml` file for easier management:
+
+```yaml
+version: '3.8'
+
+services:
+  qa-evaluator:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+```
+
+Run with:
+```bash
+docker-compose up -d
+```
+
+---
+## ☁️ AWS Deployment
+
+Deploy the QA Evaluator API on AWS using **ECS Fargate**, **ECR**, and **Application Load Balancer** for production-grade infrastructure.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Internet Users                           │
+└────────────────────┬────────────────────────────────────────┘
+                     │ HTTPS/HTTP
+                     ↓
+    ┌─────────────────────────────────────────┐
+    │  Application Load Balancer (ALB)        │
+    │  qa-evaluator-alb                       │
+    │  DNS: qa-evaluator-alb-xxx.amazonaws.com│
+    └────────────┬────────────────────────────┘
+                 │ Port 80/443
+                 ↓
+    ┌─────────────────────────────────────────┐
+    │  Target Group                           │
+    │  qa-evaluator-target-group              │
+    │  Health Checks on /                     │
+    └────────────┬────────────────────────────┘
+                 │ Port 8000
+                 ↓
+    ┌─────────────────────────────────────────┐
+    │  ECS Cluster (Fargate)                  │
+    │  qa-evaluator-cluster                   │
+    │                                         │
+    │  ┌────────────────────────────────────┐ │
+    │  │  ECS Task (Running Container)      │ │
+    │  │  - Task Def: AI-qa-evaluator-task  │ │
+    │  │  - Service: qa-evaluator-service   │ │
+    │  │                                    │ │
+    │  │  ┌──────────────────────────────┐  │ │
+    │  │  │  Docker Container            │  │ │
+    │  │  │  - Image from ECR            │  │ │
+    │  │  │  - FastAPI on port 8000      │  │ │
+    │  │  │  - Auto-restart on failure   │  │ │
+    │  │  └──────────────────────────────┘  │ │
+    │  └────────────────────────────────────┘ │
+    └─────────────────────────────────────────┘
+         ↕
+    ┌─────────────────────────────────────────┐
+    │  ECR (Elastic Container Registry)       │
+    │  Stores Docker Images                   │
+    └─────────────────────────────────────────┘
+```
+
+### Prerequisites
+
+- AWS Account with credentials
+- AWS CLI installed
+- Docker installed locally
+- IAM permissions for ECR, ECS, EC2, and IAM services
+
+### Phase 1: AWS Authentication & Setup
+
+**Step 1: Create IAM User for Deployment**
+
+1. Go to AWS IAM Console
+2. Create new user: `ecs-deployment-user`
+3. Attach policy: `AdministratorAccess`
+4. Generate Access Key and save credentials
+
+**Step 2: Configure AWS CLI**
+
+```bash
+# Install AWS CLI
+# https://aws.amazon.com/cli/
+
+# Verify installation
+aws --version
+
+# Configure credentials
+aws configure
+# Enter: AWS Access Key ID, Secret Access Key, Region (us-east-1), Output format (json)
+
+# Validate authentication
+aws sts get-caller-identity
+```
+
+### Phase 2: Docker Image to ECR
+
+**Step 3: Build and Test Locally**
+
+```bash
+# Test API locally
+uvicorn app:app --host 0.0.0.0 --port 8000
+
+# In another terminal, build Docker image
+docker build -t qa-evaluator-app .
+
+# Verify image
+docker images
+
+# Test container
+docker run -p 8000:8000 --env-file .env qa-evaluator-app
+```
+
+**Step 4: Create ECR Repository**
+
+```bash
+# Go to AWS ECR Console → Create Repository
+# Repository name: qa-evaluator-app
+# Save the ECR URI: <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/qa-evaluator-app
+```
+
+**Step 5: Push Docker Image to ECR**
+
+```bash
+# Authenticate Docker with ECR
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <YOUR_ECR_URI>
+
+# Tag image for ECR
+docker tag qa-evaluator-app:latest <YOUR_ECR_URI>:latest
+
+# Push to ECR
+docker push <YOUR_ECR_URI>:latest
+```
+
+### Phase 3: ECS Infrastructure
+
+**Step 6: Create IAM Service-Linked Role**
+
+```bash
+aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com
+```
+
+**Step 7: Create ECS Cluster**
+
+1. Go to AWS ECS Console → Clusters → Create Cluster
+2. Cluster name: `qa-evaluator-cluster`
+3. Infrastructure: AWS Fargate (serverless)
+4. Create
+
+**Step 8: Create Task Definition**
+
+1. Go to ECS Console → Task Definitions → Create New Task Definition
+2. Configuration:
+   - Family: `AI-qa-evaluator-task`
+   - Launch Type: AWS Fargate
+   - OS: Linux/X86_64
+   - CPU: 0.5 vCPU
+   - Memory: 1 GB
+   - Task Execution Role: ecsTaskExecutionRole
+
+3. Container Configuration:
+   - Name: `qa-evaluator-container`
+   - Image URI: `<YOUR_ECR_URI>:latest`
+   - Container Port: 8000
+   - Protocol: TCP
+
+4. Create
+
+**Step 9: Create ECS Service**
+
+1. Open Cluster → Create Service
+2. Configuration:
+   - Launch Type: Fargate
+   - Task Definition Family: `AI-qa-evaluator-task`
+   - Service Name: `qa-evaluator-service`
+   - Desired Count: 1
+
+3. Network Configuration:
+   - VPC: Default
+   - Security Group: Create new with port 8000 open (0.0.0.0/0)
+
+4. Public IP: Enable
+5. Create
+
+**Step 10: Verify Task is Running**
+
+```bash
+# Go to ECS Cluster → Services → qa-evaluator-service → Tasks
+# Wait for Status = RUNNING
+# Copy Public IP and visit: http://PUBLIC_IP:8000/docs
+```
+
+### Phase 4: Production Load Balancer (Optional but Recommended)
+
+**Step 11: Create Target Group**
+
+1. EC2 Console → Load Balancing → Target Groups → Create Target Group
+2. Configuration:
+   - Target Type: IP addresses
+   - Name: `qa-evaluator-target-group`
+   - Protocol: HTTP
+   - Port: 8000
+   - VPC: Default
+   - Health Check Path: `/`
+
+3. Create
+
+**Step 12: Create Application Load Balancer**
+
+1. EC2 Console → Load Balancers → Create Load Balancer
+2. Choose: Application Load Balancer
+3. Configuration:
+   - Name: `qa-evaluator-alb`
+   - Scheme: Internet-facing
+   - Subnets: Select all available
+
+4. Security Group: Create new with HTTP:80 (0.0.0.0/0)
+5. Listener: HTTP:80 → Target Group: `qa-evaluator-target-group`
+6. Create
+
+**Step 13: Attach Load Balancer to ECS Service**
+
+1. ECS Console → Service → `qa-evaluator-service` → Update
+2. Load Balancing → Enable → Application Load Balancer
+3. Select Load Balancer: `qa-evaluator-alb`
+4. Container: `qa-evaluator-container:8000`
+5. Target Group: `qa-evaluator-target-group`
+6. Update Service
+
+**Step 14: Test Load Balancer Endpoint**
+
+```bash
+# After 2-5 minutes (deployment time):
+# EC2 Console → Load Balancers → Copy DNS name
+# Visit: http://YOUR_ALB_DNS_NAME/docs
+```
+
+### Management Commands
+
+```bash
+# View service logs
+# ECS Console → Cluster → Service → Tasks → Click Task → Logs
+
+# Scale services
+aws ecs update-service --cluster qa-evaluator-cluster --service qa-evaluator-service --desired-count 3
+
+# Update application (new image)
+docker build -t qa-evaluator-app .
+docker tag qa-evaluator-app:latest <YOUR_ECR_URI>:latest
+docker push <YOUR_ECR_URI>:latest
+aws ecs update-service --cluster qa-evaluator-cluster --service qa-evaluator-service --force-new-deployment
+
+# Delete resources
+aws ecs delete-service --cluster qa-evaluator-cluster --service qa-evaluator-service --force
+aws ecs delete-cluster --cluster qa-evaluator-cluster
+aws ecr delete-repository --repository-name qa-evaluator-app --force
+```
+
+### Cost Estimation
+
+- **Fargate**: ~$0.015/hour per vCPU + ~$0.0015/hour per GB
+- **ALB**: ~$16/month + data processing charges
+- **ECR**: $0.10 per GB stored per month
+- **Data Transfer**: $0.02 per GB (outbound)
+
+---
+## �📊 Data Format
 
 ### Input Data: `data/transcripts.xlsx`
 
@@ -356,22 +850,37 @@ The output Excel file contains all input columns plus:
 
 ## 📋 Requirements
 
+### Core Dependencies
+
 ```
+# LLM & AI Framework
 langchain                    # LLM orchestration framework
 langchain-openai             # OpenAI integration
 langchain-google-genai       # Google Gemini integration
 langchain-community          # Community integrations
+
+# API Framework
+fastapi                      # Modern web framework for APIs
+uvicorn                      # ASGI server for FastAPI
+
+# Environment & Utilities
 python-dotenv               # Environment variable management
+pydantic                    # Data validation
+
+# Data Processing
+pandas                      # Data manipulation
+openpyxl                    # Excel file handling
 pypdf                       # PDF processing
 beautifulsoup4              # Web scraping
 lxml                        # XML processing
-unstructured                # Unstructured data processing
+
+# Vector & Search
 faiss-cpu                   # Vector similarity search
 sentence-transformers       # Text embedding models
 chromadb                    # Vector database
-pandas                      # Data manipulation
-openpyxl                    # Excel file handling
-pydantic                    # Data validation
+
+# Document Processing
+unstructured                # Unstructured data processing
 ```
 
 ---
@@ -388,14 +897,47 @@ This project is licensed under the MIT License - see LICENSE file for details.
 
 ## 🆘 Troubleshooting
 
-### Issue: API Key Errors
+### CLI Pipeline Issues
+
+#### Issue: API Key Errors
 **Solution**: Ensure `.env` file contains valid API keys for OpenAI/Google
 
-### Issue: File Not Found Errors
+#### Issue: File Not Found Errors
 **Solution**: Verify that `data/transcripts.xlsx` exists in the data folder
 
-### Issue: LLM Timeout
+#### Issue: LLM Timeout
 **Solution**: Increase timeout values or use a faster model variant
+
+#### Issue: Module Import Errors
+**Solution**: Ensure all dependencies are installed with `pip install -r requirements.txt`
+
+### API Server Issues
+
+#### Issue: Port Already in Use
+**Solution**: Use a different port: `uvicorn app:app --port 8001`
+
+#### Issue: CORS Errors in Browser
+**Solution**: CORS is enabled for all origins (`allow_origins=["*"]`). Check browser console for other errors.
+
+#### Issue: File Upload Fails
+**Solution**: 
+- Verify the file is in CSV or XLSX format
+- Check that the `data/` directory exists and has write permissions
+- Ensure file size doesn't exceed server limits
+
+#### Issue: 422 Unprocessable Entity
+**Solution**: Verify the request format is correct and file parameter is named `file`
+
+### Docker Issues
+
+#### Issue: Docker Build Fails
+**Solution**: Ensure Docker is installed and running, and you have internet connectivity for downloading base images
+
+#### Issue: Container Can't Access Data
+**Solution**: Verify volume mount path is correct: `-v /local/path:/app/data`
+
+#### Issue: Environment Variables Not Set
+**Solution**: Pass them explicitly with `-e` flags or use a `.env` file with Docker Compose
 
 ---
 
@@ -405,4 +947,4 @@ For issues, questions, or suggestions, please open an issue in the repository.
 
 ---
 
-**Last Updated**: May 2024
+**Last Updated**: May 26, 2026
