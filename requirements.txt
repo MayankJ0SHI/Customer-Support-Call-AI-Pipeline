@@ -13,3 +13,6 @@ chromadb
 pandas
 openpyxl
 pydantic
+fastapi
+uvicorn
+python-multipart
